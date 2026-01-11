@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -82,7 +83,7 @@ func UrlHandlerF5Vpn(opts *Options, s string) error {
 	return nil
 }
 
-func Connect(opts *Options) error {
+func Connect(ctx context.Context, opts *Options) error {
 	if opts.Server == "" {
 		fmt.Print("Enter server address: ")
 		fmt.Scanln(&opts.Server)
@@ -202,7 +203,26 @@ func Connect(opts *Options) error {
 
 	profile, err := parseProfile(resp.Body, opts.ProfileIndex, opts.ProfileName)
 	if err != nil {
-		return fmt.Errorf("failed to parse VPN profiles: %s", err)
+		if len(client.Jar.Cookies(u)) == 0 {
+			return fmt.Errorf("failed to parse VPN profiles: %s", err)
+		}
+
+		// An expired session in a cookie may cause parsing failure.
+		// try again relogin
+		if err := login(client, opts.Server, &opts.Username, &opts.Password); err != nil {
+			return fmt.Errorf("failed to login: %s", err)
+		}
+
+		// new request
+		resp, err = getProfiles(client, opts.Server)
+		if err != nil {
+			return fmt.Errorf("failed to get VPN profiles: %s", err)
+		}
+
+		profile, err = parseProfile(resp.Body, opts.ProfileIndex, opts.ProfileName)
+		if err != nil {
+			return fmt.Errorf("failed to parse VPN profiles: %s", err)
+		}
 	}
 
 	// read config, returned by F5
@@ -291,6 +311,9 @@ func Connect(opts *Options) error {
 	}
 
 	select {
+	case <-ctx.Done():
+		log.Printf("context cancelled, exiting")
+		err = ctx.Err()
 	case sig := <-termChan:
 		log.Printf("received %s signal, exiting", sig)
 	case err = <-l.ErrChan:

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -67,7 +68,7 @@ func main() {
 		}
 	}
 
-	if err := client.Connect(&opts); err != nil {
+	if err := client.Connect(context.Background(), &opts); err != nil {
 		fatal(err)
 	}
 }

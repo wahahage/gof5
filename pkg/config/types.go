@@ -168,6 +168,8 @@ type Object struct {
 	Routes6                        *netaddr.IPSet `xml:"-"`
 	TrafficControl                 TrafficControl `xml:"-"`
 	DNSSuffix                      []string       `xml:"-"`
+	LAN                            []net.IP       `xml:"-"`
+	LAN6                           []net.IP       `xml:"-"`
 }
 
 type TrafficControl struct {
@@ -206,6 +208,8 @@ func (o *Object) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		TrafficControl  string `xml:"TrafficControl0"`
 		HDLCFraming     string `xml:"hdlc_framing"`
 		DNSSuffix       string `xml:"DNSSuffix0"`
+		LAN             string `xml:"LAN0"`
+		LAN6            string `xml:"LAN6_0"`
 	}
 
 	err := d.DecodeElement(&s, &start)
@@ -228,7 +232,13 @@ func (o *Object) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	o.ExcludeSubnets6 = processCIDRs(s.ExcludeSubnets6, net.IPv6len)
 
 	// TODO: support IPv6 routes
-	o.Routes = inverseCIDRs4(o.ExcludeSubnets)
+	// Prefer the server-pushed LAN list (Split Include) if available.
+	// Otherwise, calculate routes by inverting the Exclusion list (Split Exclude).
+	if lan := processCIDRs(s.LAN, net.IPv4len); len(lan) > 0 {
+		o.Routes = subnetsToIPSet(lan)
+	} else {
+		o.Routes = inverseCIDRs4(o.ExcludeSubnets)
+	}
 
 	o.HDLCFraming, err = strToBool(s.HDLCFraming)
 	if err != nil {
