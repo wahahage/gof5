@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/kayrus/gof5/pkg/config"
 
@@ -24,15 +23,6 @@ func parseCookies(configPath string) map[string][]string {
 	cookies := make(map[string][]string)
 
 	cookiesPath := filepath.Join(configPath, cookiesName)
-
-	stat, err := os.Stat(cookiesPath)
-	if err == nil && time.Since(stat.ModTime()) > 2*time.Hour {
-		log.Printf("Cookies file is older than 2 hours, removing it")
-		if err := os.Remove(cookiesPath); err != nil {
-			log.Printf("Cannot remove cookies file: %v", err)
-		}
-		return cookies
-	}
 
 	v, err := ioutil.ReadFile(cookiesPath)
 	if err != nil {

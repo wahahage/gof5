@@ -31,18 +31,21 @@ function App() {
 
         const savedServer = localStorage.getItem("server");
         const savedUser = localStorage.getItem("username");
+        const savedPassword = localStorage.getItem("password");
         if (savedServer) setServer(savedServer);
         if (savedUser) setUsername(savedUser);
+        if (savedPassword) setPassword(savedPassword);
     }, []);
 
     const handleConnect = async () => {
         if (!server || !username || !password) {
-            alert("Please fill all fields");
+            setLogs(prev => ["Please fill all fields", ...prev]);
             return;
         }
 
         localStorage.setItem("server", server);
         localStorage.setItem("username", username);
+        localStorage.setItem("password", password);
 
         // Clear logs on new connection
         setLogs([]);
