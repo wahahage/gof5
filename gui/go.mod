@@ -65,4 +65,6 @@ require (
 
 replace github.com/kayrus/gof5 => ../
 
-replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/jia/go/pkg/mod/github.com/wailsapp/wails/v2@v2.11.0
+//replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/jia/go/pkg/mod/github.com/wailsapp/wails/v2@v2.11.0
+
+replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\sinoocean\go\pkg\mod\github.com\wailsapp\wails\v2@v2.11.0

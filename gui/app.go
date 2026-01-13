@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
+
+	"runtime/debug"
 
 	"github.com/kayrus/gof5/pkg/client"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -15,6 +18,7 @@ type App struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 	wg         sync.WaitGroup
+	mu         sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -45,42 +49,98 @@ func (a *App) startup(ctx context.Context) {
 
 // Connect starts the VPN connection
 func (a *App) Connect(server, username, password string) error {
+	a.mu.Lock()
 	if a.cancelFunc != nil {
+		a.mu.Unlock()
 		return fmt.Errorf("already connected")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
+	a.mu.Unlock()
 
 	opts := client.Options{
 		Server:   server,
 		Username: username,
 		Password: password,
-		Debug:    true,
+		Debug:    false,
 	}
 
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-
-		runtime.EventsEmit(a.ctx, "status", "Connecting...")
-		err := client.Connect(ctx, &opts)
-		if err != nil {
-			if ctx.Err() == context.Canceled {
-				runtime.EventsEmit(a.ctx, "status", "Disconnected")
-				runtime.EventsEmit(a.ctx, "log", "VPN session ended.\n")
-			} else {
+		defer func() {
+			if r := recover(); r != nil {
+				err := fmt.Errorf("panic detected: %v", r)
+				stack := string(debug.Stack())
+				log.Printf("%s\n%s", err, stack)
 				runtime.EventsEmit(a.ctx, "error", err.Error())
 				runtime.EventsEmit(a.ctx, "status", "Error")
 			}
-		} else {
-			runtime.EventsEmit(a.ctx, "status", "Disconnected")
-			runtime.EventsEmit(a.ctx, "log", "VPN session ended.\n")
-		}
+		}()
+		defer func() {
+			a.mu.Lock()
+			a.cancelFunc = nil
+			a.mu.Unlock()
+		}()
 
-		// Reset cancelFunc if it matches our context, but it's tricky without lock.
-		// For simplicity, we assume one connection at a time.
-		// If implementation of Connect blocks until disconnect, we are good.
+		retryCount := 0
+		for {
+			runtime.EventsEmit(a.ctx, "status", "Connecting...")
+			startTime := time.Now()
+			err := client.Connect(ctx, &opts)
+
+			// Check if we should reset retry count (connection lasted > 1 minute)
+			if time.Since(startTime) > 1*time.Minute {
+				retryCount = 0
+			}
+
+			// Common failure handling logic
+			if err != nil {
+				runtime.EventsEmit(a.ctx, "error", err.Error())
+				runtime.EventsEmit(a.ctx, "status", "Error")
+			} else {
+				runtime.EventsEmit(a.ctx, "status", "Disconnected")
+			}
+
+			// Check cancellation
+			if ctx.Err() == context.Canceled {
+				runtime.EventsEmit(a.ctx, "status", "Disconnected")
+				runtime.EventsEmit(a.ctx, "log", "VPN session ended.\n")
+				return
+			}
+
+			retryCount++
+			if retryCount > 5 {
+				runtime.EventsEmit(a.ctx, "status", "Disconnected")
+				runtime.EventsEmit(a.ctx, "log", "Max retry attempts exceeded. Stopping.\n")
+				// Ensure we clean up cancelFunc so user can click Connect again
+				a.mu.Lock()
+				if a.cancelFunc != nil {
+					a.cancelFunc() // Cancel context to be safe
+					a.cancelFunc = nil
+				}
+				a.mu.Unlock()
+				return
+			}
+
+			// Backoff: 3 * retryCount
+			waitDuration := time.Duration(3*retryCount) * time.Second
+			msg := fmt.Sprintf("Connection failed/ended. Retrying in %s (Attempt %d/5)....\n", waitDuration, retryCount)
+			if err == nil {
+				msg = fmt.Sprintf("VPN session ended unexpected. Retrying in %s (Attempt %d/5)....\n", waitDuration, retryCount)
+			}
+			runtime.EventsEmit(a.ctx, "log", msg)
+
+			select {
+			case <-ctx.Done():
+				runtime.EventsEmit(a.ctx, "status", "Disconnected")
+				runtime.EventsEmit(a.ctx, "log", "Retry cancelled.\n")
+				return
+			case <-time.After(waitDuration):
+				continue
+			}
+		}
 	}()
 
 	return nil
@@ -88,9 +148,11 @@ func (a *App) Connect(server, username, password string) error {
 
 // Disconnect stops the VPN connection
 func (a *App) Disconnect() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.cancelFunc != nil {
 		a.cancelFunc()
-		a.cancelFunc = nil
+		// a.cancelFunc = nil // This is now handled in the goroutine defer
 		runtime.EventsEmit(a.ctx, "status", "Disconnecting...")
 	}
 }
