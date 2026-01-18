@@ -247,7 +247,7 @@ func (l *vpnLink) configureDNS(cfg *config.Config) error {
 		l.resolvHandler.SetSuffixes(dnsSuffixes)
 	}
 
-	if l.resolvHandler.IsResolve() {
+	if l.resolvHandler.IsResolve() || runtime.GOOS == "darwin" {
 		// resolve daemon will route necessary domains through VPN gatewy
 		log.Printf("Detected systemd-resolved")
 		l.resolvHandler.SetDNSServers(cfg.F5Config.Object.DNS)
@@ -268,7 +268,7 @@ func (l *vpnLink) configureDNS(cfg *config.Config) error {
 		return err
 	}
 
-	if !l.resolvHandler.IsResolve() {
+	if !l.resolvHandler.IsResolve() && runtime.GOOS != "darwin" {
 		if len(cfg.DNS) == 0 {
 			log.Printf("Forwarding all DNS requests to %q", cfg.F5Config.Object.DNS)
 			return nil
