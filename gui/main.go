@@ -2,6 +2,10 @@ package main
 
 import (
 	"embed"
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -12,6 +16,30 @@ import (
 var assets embed.FS
 
 func main() {
+	if runtime.GOOS == "darwin" {
+		if os.Geteuid() != 0 {
+			ex, err := os.Executable()
+			if err != nil {
+				println("Error getting executable path:", err.Error())
+				return
+			}
+
+			// Construct osascript command to re-launch with admin privileges
+			// usage: do shell script "..." with administrator privileges
+			// We append " &> /dev/null &" to run in background so osascript doesn't block
+			// and the parent process can exit immediately.
+			script := fmt.Sprintf("do shell script \"%s &> /dev/null &\" with administrator privileges with prompt \"GoF5 VPN needs administrator privileges to configure network settings.\"", ex)
+			cmd := exec.Command("osascript", "-e", script)
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				println("Error requesting admin privileges:", err.Error(), "\nOutput:", string(output))
+				return
+			}
+			// If successful, exit the non-privileged instance
+			os.Exit(0)
+		}
+	}
 	// Create an instance of the app structure
 	app := NewApp()
 
