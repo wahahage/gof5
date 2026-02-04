@@ -2,11 +2,13 @@ package client
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -51,14 +53,51 @@ type RoundTripper struct {
 	Logger Logger
 }
 
-// formatHeaders converts standard http.Header type to a string with separated headers.
-func (rt *RoundTripper) formatHeaders(headers http.Header, separator string) string {
-	result := make([]string, len(headers))
+var sensitiveHeaders = map[string]struct{}{
+	"authorization":           {},
+	"proxy-authorization":     {},
+	"cookie":                  {},
+	"set-cookie":              {},
+	"x-access-session-token":  {},
+	"x-access-session-id":     {},
+	"x-csrf-token":            {},
+	"x-xsrf-token":            {},
+	"x-auth-token":            {},
+	"authentication":          {},
+	"www-authenticate":        {},
+	"x-authorization":         {},
+	"sec-websocket-protocol":  {},
+	"x-api-key":               {},
+	"x-amz-security-token":    {},
+	"x-goog-authuser":         {},
+	"x-forwarded-client-cert": {},
+}
 
-	i := 0
+var sensitiveKeys = map[string]struct{}{
+	"password":      {},
+	"passwd":        {},
+	"pass":          {},
+	"token":         {},
+	"session":       {},
+	"sessionid":     {},
+	"session_id":    {},
+	"mrhsession":    {},
+	"signature":     {},
+	"auth":          {},
+	"authorization": {},
+}
+
+// formatHeaders converts standard http.Header type to a string with separated headers.
+// Sensitive headers are redacted.
+func (rt *RoundTripper) formatHeaders(headers http.Header, separator string) string {
+	result := make([]string, 0, len(headers))
+
 	for header, data := range headers {
-		result[i] = fmt.Sprintf("%s: %s", header, strings.Join(data, " "))
-		i++
+		if _, ok := sensitiveHeaders[strings.ToLower(header)]; ok {
+			result = append(result, fmt.Sprintf("%s: %s", header, "[REDACTED]"))
+			continue
+		}
+		result = append(result, fmt.Sprintf("%s: %s", header, strings.Join(data, " ")))
 	}
 
 	return strings.Join(result, separator)
@@ -121,7 +160,7 @@ func (rt *RoundTripper) logRequest(original io.ReadCloser, contentType string) (
 		return nil, err
 	}
 
-	rt.log().RequestPrintf("Body: %s", bs.String())
+	rt.log().RequestPrintf("Body: %s", redactBody(contentType, bs.String()))
 
 	return ioutil.NopCloser(bytes.NewReader(bs.Bytes())), nil
 }
@@ -136,7 +175,7 @@ func (rt *RoundTripper) logResponse(original io.ReadCloser, contentType string) 
 		return nil, err
 	}
 
-	rt.log().ResponsePrintf("Body: %s", bs.String())
+	rt.log().ResponsePrintf("Body: %s", redactBody(contentType, bs.String()))
 
 	return ioutil.NopCloser(bytes.NewReader(bs.Bytes())), nil
 }
@@ -149,4 +188,45 @@ func (rt *RoundTripper) log() Logger {
 		return &noopLogger{}
 	}
 	return l
+}
+
+func redactBody(contentType, body string) string {
+	ct := strings.ToLower(contentType)
+	switch {
+	case strings.Contains(ct, "application/x-www-form-urlencoded"):
+		if v, err := url.ParseQuery(body); err == nil {
+			for k := range v {
+				if _, ok := sensitiveKeys[strings.ToLower(k)]; ok {
+					v.Set(k, "[REDACTED]")
+				}
+			}
+			return v.Encode()
+		}
+	case strings.Contains(ct, "application/json"):
+		var payload interface{}
+		if err := json.Unmarshal([]byte(body), &payload); err == nil {
+			redactJSON(payload)
+			if b, err := json.Marshal(payload); err == nil {
+				return string(b)
+			}
+		}
+	}
+	return body
+}
+
+func redactJSON(v interface{}) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		for k, v := range t {
+			if _, ok := sensitiveKeys[strings.ToLower(k)]; ok {
+				t[k] = "[REDACTED]"
+				continue
+			}
+			redactJSON(v)
+		}
+	case []interface{}:
+		for i := range t {
+			redactJSON(t[i])
+		}
+	}
 }

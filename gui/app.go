@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
 	"runtime/debug"
 
 	"github.com/kayrus/gof5/pkg/client"
+	"github.com/kayrus/gof5/pkg/config"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -64,6 +66,15 @@ func (a *App) Connect(server, username, password string) error {
 		Username: username,
 		Password: password,
 		Debug:    false,
+	}
+	if v := os.Getenv("GOF5_COOKIE_KEY"); v != "" {
+		opts.CookieKey = v
+	} else {
+		opts.NoStoreCookies = true
+		log.Printf("Cookie persistence disabled; set GOF5_COOKIE_KEY to enable encryption")
+	}
+	if cfg, err := config.ReadConfig(false); err == nil && cfg.InsecureTLS {
+		log.Printf("Warning: insecureTLS is set in config but is ignored; GUI enforces secure TLS")
 	}
 
 	a.wg.Add(1)

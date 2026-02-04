@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,7 +132,7 @@ func InitConnection(server string, cfg *config.Config, tlsConfig *tls.Config) (*
 	}
 
 	if l.debug {
-		log.Printf("URL: %s", getURL)
+		log.Printf("URL: %s", redactSess(getURL))
 	}
 
 	resp, err := http.ReadResponse(bufio.NewReader(l.HTTPConn), nil)
@@ -157,6 +158,21 @@ func InitConnection(server string, cfg *config.Config, tlsConfig *tls.Config) (*
 	}
 
 	return l, nil
+}
+
+func redactSess(u string) string {
+	if !strings.Contains(u, "sess=") {
+		return u
+	}
+	parts := strings.Split(u, "sess=")
+	if len(parts) < 2 {
+		return u
+	}
+	rest := parts[1]
+	if i := strings.Index(rest, "&"); i >= 0 {
+		return parts[0] + "sess=[REDACTED]" + rest[i:]
+	}
+	return parts[0] + "sess=[REDACTED]"
 }
 
 func (l *vpnLink) createTunDevice() error {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/kayrus/gof5/pkg/config"
@@ -22,20 +23,23 @@ import (
 
 type Options struct {
 	config.Config
-	Server        string
-	Username      string
-	Password      string
-	SessionID     string
-	CACert        string
-	Cert          string
-	Key           string
-	CloseSession  bool
-	Debug         bool
-	Sel           bool
-	Version       bool
-	ProfileIndex  int
-	ProfileName   string
-	Renegotiation tls.RenegotiationSupport
+	Server         string
+	Username       string
+	Password       string
+	SessionID      string
+	CACert         string
+	Cert           string
+	Key            string
+	CloseSession   bool
+	Debug          bool
+	Sel            bool
+	Version        bool
+	ProfileIndex   int
+	ProfileName    string
+	Renegotiation  tls.RenegotiationSupport
+	NoStoreCookies bool
+	CookieKeyStdin bool
+	CookieKey      string
 }
 
 func UrlHandlerF5Vpn(opts *Options, s string) error {
@@ -64,13 +68,24 @@ func UrlHandlerF5Vpn(opts *Options, s string) error {
 		}
 	}
 
-	opts.Server = m["server"][0]
-	tokenUrl := fmt.Sprintf("%s://%s:%s/vdesk/get_sessid_for_token.php3", m["protocol"][0], opts.Server, m["port"][0])
+	protocols := m["protocol"]
+	servers := m["server"]
+	ports := m["port"]
+	otc := m["otc"]
+	if len(protocols) == 0 || len(servers) == 0 || len(ports) == 0 || len(otc) == 0 {
+		return fmt.Errorf("missing required f5-vpn URL parameters")
+	}
+
+	if strings.ToLower(protocols[0]) != "https" && os.Getenv("GOF5_ALLOW_INSECURE_PROTOCOL") != "1" {
+		return fmt.Errorf("insecure protocol %q blocked; set GOF5_ALLOW_INSECURE_PROTOCOL=1 to override", protocols[0])
+	}
+
+	opts.Server = servers[0]
+	tokenUrl := fmt.Sprintf("%s://%s:%s/vdesk/get_sessid_for_token.php3", protocols[0], opts.Server, ports[0])
 	request, err := http.NewRequest(http.MethodGet, tokenUrl, nil)
 	if err != nil {
 		return err
 	}
-	otc := m["otc"]
 	request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Add("X-Access-Session-Token", otc[len(otc)-1])
 
@@ -116,6 +131,7 @@ func Connect(ctx context.Context, opts *Options) error {
 		return err
 	}
 	opts.Config = *cfg
+	allowPlaintextCookies := os.Getenv("GOF5_ALLOW_PLAINTEXT_COOKIES") == "1"
 
 	switch cfg.Renegotiation {
 	case "RenegotiateOnceAsClient":
@@ -136,7 +152,9 @@ func Connect(ctx context.Context, opts *Options) error {
 	client := &http.Client{Jar: cookieJar}
 	client.CheckRedirect = checkRedirect(client)
 
-	tlsConf, err := tlsConfig(opts, cfg.InsecureTLS)
+	// Force secure TLS: do not allow insecure TLS regardless of config/flags/env.
+	cfg.InsecureTLS = false
+	tlsConf, err := tlsConfig(opts, false)
 	if err != nil {
 		return fmt.Errorf("failed to build TLS config: %v", err)
 	}
@@ -162,7 +180,9 @@ func Connect(ctx context.Context, opts *Options) error {
 	}
 
 	// read cookies
-	cookie.ReadCookies(client, u, cfg, opts.SessionID)
+	if err := cookie.ReadCookies(client, u, cfg, opts.SessionID, []byte(opts.CookieKey)); err != nil {
+		return err
+	}
 
 	if len(client.Jar.Cookies(u)) == 0 {
 		// need to login
@@ -232,8 +252,12 @@ func Connect(ctx context.Context, opts *Options) error {
 	}
 
 	// save cookies
-	if err := cookie.SaveCookies(client, u, cfg); err != nil {
-		return fmt.Errorf("failed to save cookies: %s", err)
+	if !opts.NoStoreCookies {
+		if err := cookie.SaveCookies(client, u, cfg, []byte(opts.CookieKey), allowPlaintextCookies); err != nil {
+			return fmt.Errorf("failed to save cookies: %s", err)
+		}
+	} else {
+		log.Printf("Cookie persistence disabled by --no-store-cookies")
 	}
 
 	// close HTTPS VPN session

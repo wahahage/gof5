@@ -1,6 +1,6 @@
 module gui
 
-go 1.24.0
+go 1.25.6
 
 require (
 	github.com/kayrus/gof5 v0.0.0-00010101000000-000000000000
@@ -66,10 +66,10 @@ require (
 replace github.com/kayrus/gof5 => ../
 
 // OS:Mac
-//replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/jia/go/pkg/mod/github.com/wailsapp/wails/v2@v2.11.0
+replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/jia/go/pkg/mod/github.com/wailsapp/wails/v2@v2.11.0
 
 // OS:Windows
-replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\sinoocean\go\pkg\mod\github.com\wailsapp\wails\v2@v2.11.0
+// replace github.com/wailsapp/wails/v2 v2.11.0 => C:\Users\sinoocean\go\pkg\mod\github.com\wailsapp\wails\v2@v2.11.0
 
 // OS:Linux
 // replace github.com/wailsapp/wails/v2 v2.11.0 => /root/go/pkg/mod/github.com/wailsapp/wails/v2@v2.11.0

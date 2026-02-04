@@ -85,7 +85,9 @@ $ make docker
 
 ```sh
 # download the latest release
-$ sudo gof5 --server server --username username --password token
+$ export GOF5_PASSWORD="token"
+$ export GOF5_COOKIE_KEY="a-strong-passphrase"
+$ sudo gof5 --server server --username username
 ```
 
 Alternatively you can use a session ID, obtained during the web browser authentication (in case, when you have MFA). You can find the session ID by going to the VPN host in a web browser, logging in, and running this JavaScript in Developer Tools:
@@ -97,16 +99,29 @@ document.cookie.match(/MRHSession=(.*?); /)[1]
 Then specify it as an argument:
 
 ```sh
-$ sudo gof5 --server server --session sessionID
+$ export GOF5_SESSION="sessionID"
+$ sudo gof5 --server server
 ```
 
 When username and password are not provided, they will be asked if `~/.gof5/cookies.yaml` file doesn't contain previously saved HTTPS session cookies or when the saved session is expired or explicitly terminated (`--close-session`).
+
+Note: cookies are now encrypted by default when `GOF5_COOKIE_KEY` is set. If no key is provided, cookies will not be stored unless `GOF5_ALLOW_PLAINTEXT_COOKIES=1` is set or `--no-store-cookies` is used.
 
 Use `--close-session` flag to terminate an HTTPS VPN session on exit. Next startup will require a valid username/password.
 
 Use `--select` to choose a VPN server from the list, known to a current server.
 
 Use `--profile-index` to define a custom F5 VPN profile index.
+
+Security-related flags and env vars:
+
+* `--password-stdin` reads password from stdin (hidden)
+* `GOF5_PASSWORD` provides the password via environment
+* `--cookie-key-stdin` reads cookie encryption key from stdin (hidden)
+* `GOF5_COOKIE_KEY` provides cookie encryption key via environment
+* `--no-store-cookies` disables cookie persistence
+* Secure TLS is always enforced; insecure TLS is not supported
+* `GOF5_ALLOW_PLAINTEXT_COOKIES=1` allows plaintext cookie storage (not recommended)
 
 ### CA certificate and TLS keypair
 
@@ -130,7 +145,7 @@ rewriteResolv: false
 # experimental DTLSv1.2 support
 # F5 BIG-IP server should have enabled DTLSv1.2 support
 dtls: false
-# TLS certificate check
+# TLS certificate check (insecure TLS is not supported)
 insecureTLS: false
 # Enable IPv6
 ipv6: false
